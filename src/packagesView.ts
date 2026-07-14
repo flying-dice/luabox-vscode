@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { search } from "./cli";
 import { CliMissingError, RateLimitError } from "./binary";
+import { getGithubToken } from "./auth";
 import { findLuaboxRoot } from "./workspace";
 
 function nonce(): string {
@@ -16,6 +17,7 @@ function nonce(): string {
 type InMessage =
   | { type: "search"; query: string }
   | { type: "install"; name: string; url: string; tag: string | null }
+  | { type: "signIn" }
   | { type: "ready" };
 
 /**
@@ -45,13 +47,33 @@ export class PackagesViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage((msg: InMessage) => {
       switch (msg.type) {
         case "ready":
+          void this.refreshAuth();
+          void this.runSearch("");
+          break;
         case "search":
-          void this.runSearch(msg.type === "search" ? msg.query : "");
+          void this.runSearch(msg.query);
           break;
         case "install":
           void this.runInstall(msg.name, msg.url, msg.tag);
           break;
+        case "signIn":
+          void vscode.commands.executeCommand("luabox.signInGithub");
+          break;
       }
+    });
+  }
+
+  /**
+   * Re-resolve the native GitHub session silently and push the auth status to
+   * the webview (signed-in label or a sign-in affordance). Safe to call when the
+   * view is not yet resolved — it just no-ops.
+   */
+  async refreshAuth(): Promise<void> {
+    const auth = await getGithubToken(false);
+    await this.post({
+      type: "auth",
+      signedIn: !!auth,
+      label: auth?.label ?? null,
     });
   }
 
@@ -128,6 +150,18 @@ export class PackagesViewProvider implements vscode.WebviewViewProvider {
   }
   .searchbar { display: flex; gap: 6px; position: sticky; top: 0;
     background: var(--vscode-sideBar-background); padding-bottom: 8px; z-index: 2; }
+  .authbar { display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; font-size: .92em; color: var(--vscode-descriptionForeground);
+    padding: 2px 2px 8px; }
+  .authbar.hidden { display: none; }
+  .authbar .who { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .authbar .who .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .authbar .codicon-check { color: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #89d185)); }
+  .authbar button.link {
+    background: none; color: var(--vscode-textLink-foreground); padding: 0;
+    border: none; cursor: pointer; font: inherit; text-decoration: none;
+  }
+  .authbar button.link:hover { text-decoration: underline; background: none; }
   #q {
     flex: 1; box-sizing: border-box;
     color: var(--vscode-input-foreground);
@@ -178,12 +212,31 @@ export class PackagesViewProvider implements vscode.WebviewViewProvider {
     <input id="q" type="text" placeholder="Search luabox packages…" autocomplete="off" spellcheck="false" />
     <button id="go">Search</button>
   </div>
+  <div id="auth" class="authbar hidden"></div>
   <div id="out"><div class="status">Loading packages…</div></div>
 
 <script nonce="${n}">
   const vscode = acquireVsCodeApi();
   const q = document.getElementById("q");
   const out = document.getElementById("out");
+  const authbar = document.getElementById("auth");
+
+  function renderAuth(signedIn, label) {
+    authbar.classList.remove("hidden");
+    if (signedIn) {
+      authbar.innerHTML =
+        '<span class="who"><span class="codicon-check">✓</span> ' +
+        '<span class="label">Signed in as ' + esc(label) + '</span></span>';
+    } else {
+      authbar.innerHTML =
+        '<span class="who">Not signed in to GitHub</span>' +
+        '<button class="link" id="signin">Sign in to GitHub</button>';
+      const b = document.getElementById("signin");
+      if (b) { b.addEventListener("click", function () {
+        vscode.postMessage({ type: "signIn" });
+      }); }
+    }
+  }
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -235,6 +288,9 @@ export class PackagesViewProvider implements vscode.WebviewViewProvider {
   window.addEventListener("message", function (ev) {
     const m = ev.data;
     switch (m.type) {
+      case "auth":
+        renderAuth(m.signedIn, m.label);
+        break;
       case "loading":
         out.innerHTML = '<div class="status"><span class="spinner"></span>Searching…</div>';
         break;

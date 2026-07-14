@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CliMissingError, RateLimitError } from "./binary";
+import { getGithubToken, onGithubAuthChange } from "./auth";
 import * as cli from "./cli";
 import { DepNode, InstalledDepsProvider } from "./installedView";
 import { PackagesViewProvider } from "./packagesView";
@@ -20,16 +21,32 @@ function reportError(prefix: string, e: unknown): void {
     return;
   }
   if (e instanceof RateLimitError) {
-    void vscode.window
-      .showWarningMessage(e.message, "Open Settings")
-      .then((pick) => {
+    // Actionable nudge: if there is no native session, offer sign-in (raises the
+    // rate limit); if already signed in, a PAT override is the remaining lever.
+    void (async () => {
+      const session = await getGithubToken(false);
+      if (!session) {
+        const pick = await vscode.window.showWarningMessage(
+          e.message,
+          "Sign in to GitHub"
+        );
         if (pick) {
-          void vscode.commands.executeCommand(
-            "workbench.action.openSettings",
-            "luabox.githubToken"
-          );
+          void vscode.commands.executeCommand("luabox.signInGithub");
         }
-      });
+        return;
+      }
+      const pick = await vscode.window.showWarningMessage(
+        `${e.message}\n\nYou are signed in as ${session.label}; a PAT override ` +
+          "with higher limits can be set in luabox.githubToken.",
+        "Open Settings"
+      );
+      if (pick) {
+        void vscode.commands.executeCommand(
+          "workbench.action.openSettings",
+          "luabox.githubToken"
+        );
+      }
+    })();
     return;
   }
   void vscode.window.showErrorMessage(`${prefix}: ${(e as Error).message}`);
@@ -140,6 +157,38 @@ export function registerPackages(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("luabox.packages.search", () => {
       packagesProvider.focusSearch();
+    }),
+    vscode.commands.registerCommand("luabox.signInGithub", async () => {
+      // Drives VS Code's native GitHub sign-in. onDidChangeSessions then
+      // refreshes the panels, but refresh eagerly too for immediate feedback.
+      const auth = await getGithubToken(true);
+      if (auth) {
+        void vscode.window.showInformationMessage(
+          `Signed in to GitHub as ${auth.label}.`
+        );
+        void packagesProvider.refreshAuth();
+        installed.refresh();
+      }
+      // Undefined => the user declined the sign-in dialog; stay anonymous.
+    }),
+    vscode.commands.registerCommand("luabox.signOutGithub", () => {
+      // VS Code owns the GitHub session lifecycle; another provider's session
+      // cannot be revoked programmatically. Be honest: direct the user to the
+      // Accounts menu rather than faking a sign-out.
+      void vscode.window.showInformationMessage(
+        "GitHub sign-in is managed by VS Code. To sign out, open the Accounts " +
+          "menu (the person icon at the bottom of the Activity Bar), select " +
+          "your GitHub account, and choose Sign Out."
+      );
+    })
+  );
+
+  // Refresh auth status + panels whenever the user signs in / out via the
+  // Accounts menu.
+  context.subscriptions.push(
+    onGithubAuthChange(() => {
+      void packagesProvider.refreshAuth();
+      installed.refresh();
     })
   );
 

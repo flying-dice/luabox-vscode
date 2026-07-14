@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { execFile } from "child_process";
+import { resolveGithubTokenForCli, traceResolvedToken } from "./auth";
 
 /**
  * Resolve the `luabox` binary from the `luabox.path` setting, falling back to
@@ -26,12 +27,12 @@ export class CliMissingError extends Error {
   }
 }
 
-/** GitHub rate-limited the CLI; a token would raise the limit. */
+/** GitHub rate-limited the CLI; authenticating would raise the limit. */
 export class RateLimitError extends Error {
   constructor(detail: string) {
     super(
-      "GitHub rate limit reached. Set a GitHub token in the `luabox.githubToken` " +
-        "setting to raise the limit." +
+      "GitHub rate limit reached. Sign in to GitHub (Accounts menu) to raise " +
+        "the limit." +
         (detail ? `\n\n${detail}` : "")
     );
     this.name = "RateLimitError";
@@ -57,27 +58,31 @@ export interface RunResult {
 }
 
 /**
- * Spawn the resolved `luabox` binary with `args` in `cwd`. Injects the GitHub
- * token from the `luabox.githubToken` setting as `LUABOX_GITHUB_TOKEN` in the
- * child env (never logged). Rejects with {@link CliMissingError} when the binary
- * is absent; otherwise resolves with stdout/stderr/exit code (non-zero
- * included — callers decide how to interpret it).
+ * Spawn the resolved `luabox` binary with `args` in `cwd`. Resolves the GitHub
+ * token to inject via {@link resolveGithubTokenForCli} — the advanced
+ * `luabox.githubToken` PAT override if set, else VS Code's native GitHub session
+ * token (fetched silently — never prompts), else nothing (anonymous) — and
+ * passes it as `LUABOX_GITHUB_TOKEN` in the child env (never logged). Rejects
+ * with {@link CliMissingError} when the binary is absent; otherwise resolves
+ * with stdout/stderr/exit code (non-zero included — callers decide how to
+ * interpret it).
  */
-export function runLuabox(args: string[], cwd: string): Promise<RunResult> {
+export async function runLuabox(
+  args: string[],
+  cwd: string
+): Promise<RunResult> {
+  const bin = resolveBinary();
+  const resolved = await resolveGithubTokenForCli();
+  traceResolvedToken(resolved);
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (resolved.token) {
+    // The CLI honors LUABOX_GITHUB_TOKEN (else GITHUB_TOKEN). We set the
+    // luabox-specific one so we never clobber a user's GITHUB_TOKEN.
+    env.LUABOX_GITHUB_TOKEN = resolved.token;
+  }
+
   return new Promise((resolve, reject) => {
-    const bin = resolveBinary();
-    const token = vscode.workspace
-      .getConfiguration("luabox")
-      .get<string>("githubToken")
-      ?.trim();
-
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    if (token) {
-      // The CLI honors LUABOX_GITHUB_TOKEN (else GITHUB_TOKEN). We set the
-      // luabox-specific one so we never clobber a user's GITHUB_TOKEN.
-      env.LUABOX_GITHUB_TOKEN = token;
-    }
-
     execFile(
       bin,
       args,

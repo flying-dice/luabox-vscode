@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run compile
+      # Pure token-precedence unit tests (vscode-free; node:test).
+      - run: npm test
       # Package to prove the .vsix builds; the artifact itself is discarded here
       # (the release workflow is what attaches it to a release).
       - run: npx @vscode/vsce package

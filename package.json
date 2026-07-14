@@ -2,7 +2,7 @@
   "name": "luabox",
   "displayName": "luabox",
   "description": "luabox language support: typecheck, lint, hover, goto-def and completion for Lua, powered by `luabox lsp`.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "luabox",
   "license": "MIT",
   "engines": {
@@ -78,6 +78,16 @@
         "title": "Remove dependency",
         "category": "luabox",
         "icon": "$(trash)"
+      },
+      {
+        "command": "luabox.signInGithub",
+        "title": "Sign in to GitHub",
+        "category": "luabox"
+      },
+      {
+        "command": "luabox.signOutGithub",
+        "title": "Sign out of GitHub",
+        "category": "luabox"
       }
     ],
     "menus": {
@@ -128,7 +138,7 @@
         "luabox.githubToken": {
           "type": "string",
           "default": "",
-          "markdownDescription": "GitHub token used only to raise the API rate limit for package search and outdated checks. When set, it is passed to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment variable. A read-only token with `public_repo` scope is sufficient. Leave empty to use the CLI's own token resolution.",
+          "markdownDescription": "**Advanced / power-user override.** Normally the extension uses your VS Code GitHub sign-in automatically (the Accounts menu) — no token needed. Set a Personal Access Token here only for setups the native sign-in can't cover, e.g. GitHub Enterprise or restricted orgs. When set, it takes precedence over the native session and is passed to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment variable (never logged). A read-only token with `public_repo` scope is sufficient.",
           "scope": "machine-overridable"
         },
         "luabox.trace.server": {
@@ -150,6 +160,7 @@
     "check-types": "tsc -p ./ --noEmit",
     "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "watch": "npm run bundle -- --watch",
+    "test": "esbuild ./src/authToken.test.ts --bundle --outfile=out/authToken.test.cjs --format=cjs --platform=node && node --test out/authToken.test.cjs",
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {

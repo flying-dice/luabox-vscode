@@ -58,15 +58,36 @@ If the workspace has no `luabox.toml`, the panel shows a friendly prompt to run
 `luabox new` instead of any actions. If the `luabox` binary can't be found, the
 panel links to the [install docs](https://github.com/flying-dice/luabox#install).
 
-### GitHub rate limits
+### Authentication
 
-Package search and outdated checks hit the GitHub API. Unauthenticated calls are
-rate-limited; if you hit the limit, set **`luabox.githubToken`** to a read-only
-token (a classic token with `public_repo` scope, or a fine-grained token with
-public read access is plenty). The extension passes it to the CLI as the
-`LUABOX_GITHUB_TOKEN` environment variable and never logs it. Leaving it empty
-falls back to the CLI's own token resolution (`LUABOX_GITHUB_TOKEN` /
-`GITHUB_TOKEN` from your environment).
+Package search and outdated checks hit the GitHub API, which rate-limits
+unauthenticated calls. **The extension uses your VS Code GitHub sign-in
+automatically** — the account behind the **Accounts** menu (the person icon at
+the bottom of the Activity Bar). No token to paste, no device flow: if you are
+signed in to GitHub in VS Code, the extension reuses that session (requesting no
+scopes — an authenticated token alone lifts the rate limit and reads public
+data) and passes it to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment
+variable. The token is only held in memory and passed to the child process; it
+is never logged or written to disk by the extension (VS Code's SecretStorage
+backs the session).
+
+- The **Packages** panel shows **Signed in as `<user>`** when a session exists,
+  or a **Sign in to GitHub** button otherwise. There are also
+  **luabox: Sign in to GitHub** / **luabox: Sign out of GitHub** commands.
+- If you hit a rate limit while signed out, the extension offers an actionable
+  **Sign in to GitHub** prompt.
+- **Signing out** is done through VS Code itself: the editor owns the GitHub
+  session, so use **Accounts ▸ your GitHub account ▸ Sign Out**. The extension's
+  "Sign out" command points you there rather than faking a sign-out it cannot
+  actually perform.
+
+**Optional PAT override.** For setups the native sign-in can't cover (GitHub
+Enterprise, restricted orgs, or a CI-style token), set **`luabox.githubToken`**
+to a read-only Personal Access Token (a classic token with `public_repo` scope,
+or a fine-grained token with public read access). When set, it takes precedence
+over the native session and is passed as `LUABOX_GITHUB_TOKEN`. Leaving it empty
+is the normal path — the native session (or, failing that, the CLI's own
+`LUABOX_GITHUB_TOKEN` / `GITHUB_TOKEN` environment resolution) is used.
 
 ## Requirements
 
@@ -155,7 +176,7 @@ luabox explicitly if you want it:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `luabox.path` | `luabox` | Path to the `luabox` executable. A bare name is resolved on `PATH`. The server is launched as `<path> lsp`. |
-| `luabox.githubToken` | `""` | GitHub token to raise the API rate limit for package search / outdated checks. Passed to the CLI as `LUABOX_GITHUB_TOKEN`; never logged. Empty falls back to the CLI's own token resolution. |
+| `luabox.githubToken` | `""` | **Advanced override.** Normally unnecessary — the extension uses your VS Code GitHub sign-in automatically. Set a Personal Access Token here only for GitHub Enterprise / restricted orgs; when set it takes precedence over the native session and is passed to the CLI as `LUABOX_GITHUB_TOKEN` (never logged). |
 | `luabox.trace.server` | `off` | Trace LSP traffic (`off` / `messages` / `verbose`). |
 
 ## For maintainers: building and packaging
@@ -186,8 +207,8 @@ npm install -g @vscode/vsce      # or use: npx @vscode/vsce
 npx @vscode/vsce package
 ```
 
-This produces `luabox-0.2.0.vsix`, which can be installed via
-`code --install-extension luabox-0.2.0.vsix` or **Extensions ▸ … ▸ Install from
+This produces `luabox-0.2.1.vsix`, which can be installed via
+`code --install-extension luabox-0.2.1.vsix` or **Extensions ▸ … ▸ Install from
 VSIX** in the UI.
 
 ## Publishing to the Marketplace
@@ -210,6 +231,21 @@ Releases are tagged in this repo and published to
 [GitHub Releases](https://github.com/flying-dice/luabox-vscode/releases), each
 with the packaged `.vsix` and its `SHA256SUMS`. The extension is versioned
 independently of the `luabox` toolchain.
+
+### 0.2.1
+
+- **Native GitHub authentication**: the dependency-management features now use
+  VS Code's built-in GitHub sign-in (the **Accounts** menu) automatically —
+  no pasted token, no device flow. The session token (requested with no scopes,
+  which is enough to lift the API rate limit) is injected into the `luabox` CLI
+  as `LUABOX_GITHUB_TOKEN` and never logged or persisted by the extension. The
+  **Packages** panel shows **Signed in as `<user>`** or a **Sign in to GitHub**
+  affordance; new **luabox: Sign in / Sign out of GitHub** commands and a
+  rate-limit sign-in nudge round it out. Sign-out honestly directs to the
+  Accounts menu (VS Code owns the session).
+- **`luabox.githubToken` is now an optional power-user override** (retained for
+  GitHub Enterprise / restricted orgs). When set it takes precedence over the
+  native session; otherwise the native session is used.
 
 ### 0.2.0
 
