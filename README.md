@@ -28,6 +28,46 @@ sources.
 > extensions (e.g. sumneko/LuaLS). Install a Lua grammar extension alongside it
 > for `.lua` syntax highlighting.
 
+## Dependency management
+
+A dedicated **luabox** container in the Activity Bar gives `luabox.toml`
+projects an npm-registry-style dependency GUI. Everything it does is call the
+`luabox` CLI (the same binary the language server uses, resolved via
+`luabox.path`) in your workspace folder and render the result — the CLI owns all
+GitHub and TOML logic.
+
+- **Packages** (webview): a search box and result cards. Each card shows the
+  package name and `owner/repo`, ★ stars, description, topics, and the latest
+  release tag, with a one-click **Install**. An empty query lists all public
+  GitHub repos tagged `luabox`. Install runs
+  `luabox add <name> --git <url> --tag <latest>`.
+  > luabox packages are public GitHub repos with the `luabox` topic and a root
+  > `luabox.toml`. None are published yet, so search legitimately returns no
+  > results today — the panel says so rather than looking broken.
+- **Installed dependencies** (tree): every dependency in `luabox.toml` with its
+  current pin. A git dependency that is behind its repo's latest GitHub release
+  shows a `current → latest` badge and an **Update** button
+  (`luabox update <name>`, re-pinning to the latest tag); every dependency has a
+  **Remove** button (`luabox remove <name>`). Path / workspace / registry
+  dependencies are shown read-only (no false "outdated"). The view title carries
+  a badge with the number of outdated dependencies and a **Refresh** action, and
+  it auto-refreshes whenever `luabox.toml` is saved or a dependency is
+  installed / updated / removed.
+
+If the workspace has no `luabox.toml`, the panel shows a friendly prompt to run
+`luabox new` instead of any actions. If the `luabox` binary can't be found, the
+panel links to the [install docs](https://github.com/flying-dice/luabox#install).
+
+### GitHub rate limits
+
+Package search and outdated checks hit the GitHub API. Unauthenticated calls are
+rate-limited; if you hit the limit, set **`luabox.githubToken`** to a read-only
+token (a classic token with `public_repo` scope, or a fine-grained token with
+public read access is plenty). The extension passes it to the CLI as the
+`LUABOX_GITHUB_TOKEN` environment variable and never logs it. Leaving it empty
+falls back to the CLI's own token resolution (`LUABOX_GITHUB_TOKEN` /
+`GITHUB_TOKEN` from your environment).
+
 ## Requirements
 
 - A `luabox` binary on your `PATH` (or configured via `luabox.path`). The
@@ -115,6 +155,7 @@ luabox explicitly if you want it:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `luabox.path` | `luabox` | Path to the `luabox` executable. A bare name is resolved on `PATH`. The server is launched as `<path> lsp`. |
+| `luabox.githubToken` | `""` | GitHub token to raise the API rate limit for package search / outdated checks. Passed to the CLI as `LUABOX_GITHUB_TOKEN`; never logged. Empty falls back to the CLI's own token resolution. |
 | `luabox.trace.server` | `off` | Trace LSP traffic (`off` / `messages` / `verbose`). |
 
 ## For maintainers: building and packaging
@@ -145,8 +186,8 @@ npm install -g @vscode/vsce      # or use: npx @vscode/vsce
 npx @vscode/vsce package
 ```
 
-This produces `luabox-0.1.0.vsix`, which can be installed via
-`code --install-extension luabox-0.1.0.vsix` or **Extensions ▸ … ▸ Install from
+This produces `luabox-0.2.0.vsix`, which can be installed via
+`code --install-extension luabox-0.2.0.vsix` or **Extensions ▸ … ▸ Install from
 VSIX** in the UI.
 
 ## Publishing to the Marketplace
@@ -169,6 +210,20 @@ Releases are tagged in this repo and published to
 [GitHub Releases](https://github.com/flying-dice/luabox-vscode/releases), each
 with the packaged `.vsix` and its `SHA256SUMS`. The extension is versioned
 independently of the `luabox` toolchain.
+
+### 0.2.0
+
+- **Dependency management GUI**: a new **luabox** Activity Bar container with a
+  **Packages** search webview (npm-style result cards with ★ stars, description,
+  latest tag, and one-click Install) and an **Installed dependencies** tree
+  (current pins, `current → latest` outdated badges, per-dep Update / Remove, an
+  outdated-count badge, Refresh, and auto-refresh on `luabox.toml` save). All
+  actions shell out to the `luabox` CLI (`search` / `outdated` / `add` /
+  `update` / `remove`) in the workspace and render its JSON.
+- New **`luabox.githubToken`** setting, passed to the CLI as
+  `LUABOX_GITHUB_TOKEN` to raise the GitHub API rate limit for search / outdated.
+  Rate-limit and "binary not found" errors are surfaced inline with actionable
+  buttons.
 
 ### 0.1.0
 
