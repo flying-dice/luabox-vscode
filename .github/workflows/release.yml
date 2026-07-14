@@ -19,6 +19,15 @@ on:
   push:
     tags:
       - "v*"
+  # Escape hatch (mirrors luabox-jetbrains): drive the pipeline for an existing
+  # tag by hand. On a tag push, inputs.tag is empty so github.ref_name is used;
+  # on manual dispatch the provided tag drives every job.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build + verify (e.g. v0.1.0)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -41,9 +50,11 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
       - name: Create the GitHub Release (not latest yet)
         run: |
           # Keep notes simple: the tag name plus a pointer to the README
@@ -74,9 +85,12 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # Build the TAG's tree, not main-at-dispatch-time.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -108,7 +122,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Re-verify published checksums against freshly downloaded assets
         run: |
@@ -160,7 +174,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Mark latest (go live)
         run: gh release edit "$TAG" --latest
