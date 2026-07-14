@@ -6,21 +6,13 @@ import {
   State,
   TransportKind,
 } from "vscode-languageclient/node";
+import { resolveBinary } from "./binary";
+import { registerPackages } from "./packages";
 
 let client: LanguageClient | undefined;
 let statusItem: vscode.StatusBarItem | undefined;
 /** Subscription to the current client's onDidChangeState; recreated per client. */
 let stateSubscription: vscode.Disposable | undefined;
-
-/** Resolve the `luabox` binary from the `luabox.path` setting, falling back to PATH. */
-function resolveBinary(): string {
-  const configured = vscode.workspace
-    .getConfiguration("luabox")
-    .get<string>("path");
-  const path = (configured ?? "").trim();
-  // A bare name (default "luabox") is left as-is so the OS resolves it on PATH.
-  return path.length > 0 ? path : "luabox";
-}
 
 /** Render the status bar item for the given language-server state. */
 function updateStatus(state: State): void {
@@ -138,6 +130,10 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage("luabox language server restarted.");
     })
   );
+
+  // Dependency-management GUI (Activity Bar "luabox" container: search webview +
+  // installed-deps tree). Self-contained; talks to the CLI only.
+  registerPackages(context);
 
   void startClient().catch((err) => {
     // onDidChangeState may not fire on spawn failure (e.g. binary not found),
