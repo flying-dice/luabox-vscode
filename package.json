@@ -20,7 +20,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/flying-dice/luabox"
+    "url": "https://github.com/flying-dice/luabox-vscode"
   },
   "main": "./out/extension.js",
   "activationEvents": [

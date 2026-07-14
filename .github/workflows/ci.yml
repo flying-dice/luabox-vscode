@@ -1,0 +1,33 @@
+name: ci
+
+# Prove the extension compiles and packages on every push to main and every PR.
+# `npx @vscode/vsce package` is the real gate: it runs `vscode:prepublish` and
+# fails on anything that would make the .vsix unshippable (missing files,
+# manifest problems), so a green CI means a releasable artifact.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile & package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+      # Package to prove the .vsix builds; the artifact itself is discarded here
+      # (the release workflow is what attaches it to a release).
+      - run: npx @vscode/vsce package

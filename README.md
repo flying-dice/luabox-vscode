@@ -39,8 +39,8 @@ sources.
 
 ## Getting the `luabox` binary
 
-From a released build, run the install script for your platform (see the
-repo root [`RELEASING.md`](../../RELEASING.md) for how releases are cut):
+From a released build, run the install script for your platform (releases are
+cut in the [luabox toolchain repo](https://github.com/flying-dice/luabox)):
 
 ```sh
 # Linux / macOS
@@ -61,13 +61,34 @@ Then install this extension itself — see [Installing the extension](#installin
 
 ## Installing the extension
 
-- **From a release**: the packaged `.vsix` is attached to each GitHub release —
-  download it (or build one yourself — see [Package a `.vsix`](#package-a-vsix))
-  and run `code --install-extension luabox-<version>.vsix`, or use
-  **Extensions ▸ … ▸ Install from VSIX** in the UI.
+The extension has two pieces, versioned and released independently:
+
+1. **The `luabox` binary** — the language server the extension wraps. It ships
+   from the [luabox toolchain repo](https://github.com/flying-dice/luabox);
+   grab it with the install one-liners under
+   [Getting the `luabox` binary](#getting-the-luabox-binary) above (see also
+   the toolchain's [install docs](https://github.com/flying-dice/luabox#install)).
+2. **This extension (`.vsix`)** — released here, on its own version line (its
+   `package.json` version, independent of the CLI's tags).
+
+To install the extension:
+
+- **From a release (recommended)**: download the latest `luabox-<version>.vsix`
+  from this repo's
+  [GitHub Releases](https://github.com/flying-dice/luabox-vscode/releases),
+  then:
+
+  ```sh
+  code --install-extension luabox-<version>.vsix
+  ```
+
+  or use **Extensions ▸ … ▸ Install from VSIX** in the UI. Every release also
+  attaches a `SHA256SUMS` you can verify the download against.
+- **Build one yourself**: see [Package a `.vsix`](#package-a-vsix).
 - **From the Marketplace / Open VSX**: not yet published — see
   [Publishing to the Marketplace](#publishing-to-the-marketplace) for the
-  residual manual steps.
+  residual manual steps. The `.vsix` from these releases is what gets
+  drag-and-dropped into the Marketplace.
 
 ## Formatting
 
@@ -105,14 +126,15 @@ and [Installing the extension](#installing-the-extension) above).
 ### Build from source
 
 ```sh
-cd editors/vscode
+git clone https://github.com/flying-dice/luabox-vscode
+cd luabox-vscode
 npm ci                    # or: npm install
 npm run compile          # tsc -> ./out/extension.js
 ```
 
 ### Run in the Extension Development Host
 
-Open `editors/vscode` in VS Code and press <kbd>F5</kbd> (Run Extension). A new
+Open this repo in VS Code and press <kbd>F5</kbd> (Run Extension). A new
 window opens with the extension loaded; open a `.lua` file to activate
 the server.
 
@@ -140,6 +162,20 @@ Publishing requires credentials that are **not** bundled here:
 
 For Open VSX (used by VSCodium / Cursor / Gitpod), use `npx ovsx publish` with
 an Open VSX token instead.
+
+## Changelog
+
+Releases are tagged in this repo and published to
+[GitHub Releases](https://github.com/flying-dice/luabox-vscode/releases), each
+with the packaged `.vsix` and its `SHA256SUMS`. The extension is versioned
+independently of the `luabox` toolchain.
+
+### 0.1.0
+
+- Initial standalone release: VS Code client for the `luabox lsp` language
+  server — diagnostics, hover, completion, goto, references, rename, symbols,
+  signature help, inlay hints, formatting, semantic highlighting, and a
+  server-state status bar item with a restart command.
 
 ## Notes / known deviations
 

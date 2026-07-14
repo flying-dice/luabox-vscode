@@ -1,0 +1,166 @@
+name: release
+
+# Cut a GitHub Release for a pushed `v*` tag: publish the release up front (NOT
+# latest yet), build + attach the packaged `.vsix` and its `SHA256SUMS`, then
+# independently re-download and verify those assets before the release is marked
+# `--latest`. A release only goes live after its freshly-built .vsix has been
+# checksum-verified and structurally validated.
+#
+# Everything happens in this ONE workflow run, triggered by the tag push — not
+# via an `on: release` trigger. A release created here with GITHUB_TOKEN would
+# NOT fire a downstream `release: published` workflow (GitHub suppresses
+# token-raised events), so the whole pipeline is chained by `needs:` instead.
+#
+# This mirrors the hardened, smoke-gated release pipeline in the luabox
+# toolchain repo: publish not-latest, verify the real uploaded bytes, and only
+# then go live — so a broken or truncated artifact can never be the "latest"
+# release users pull.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# Never run two release pipelines for the same tag concurrently; do not cancel
+# an in-flight one (a half-published release is worse than a slow one).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Publish the release up front so the publish/verify jobs have a target to
+  # attach to and download from. Deliberately NOT marked latest yet
+  # (`--latest=false`) — that is gated behind `verify` and done by `mark-latest`,
+  # so a release only goes live after its freshly-built .vsix verifies.
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the GitHub Release (not latest yet)
+        run: |
+          # Keep notes simple: the tag name plus a pointer to the README
+          # changelog section (the extension has no separate CHANGELOG file).
+          cat > release-notes.md <<EOF
+          ## luabox for VS Code ${TAG}
+
+          VS Code extension release ${TAG}. See the
+          [changelog in the README](https://github.com/${GITHUB_REPOSITORY}#changelog)
+          for what's in this version.
+
+          The packaged \`.vsix\` and its \`SHA256SUMS\` are attached below —
+          install with \`code --install-extension luabox-<version>.vsix\`.
+          EOF
+          gh release create "$TAG" \
+            --title "luabox for VS Code $TAG" \
+            --notes-file release-notes.md \
+            --draft=false \
+            --latest=false
+
+  # Build + package the extension and attach the .vsix and SHA256SUMS to the
+  # release. Does NOT mark the release latest — that is gated behind `verify`.
+  publish:
+    name: Package & upload
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+      - name: Package the .vsix
+        run: npx @vscode/vsce package
+      - name: Generate SHA256SUMS
+        run: |
+          # Bare filename in SHA256SUMS so `sha256sum -c` works from any dir the
+          # .vsix is downloaded into.
+          sha256sum luabox-*.vsix > SHA256SUMS
+          cat SHA256SUMS
+      - name: Upload assets to release
+        run: |
+          gh release upload "$TAG" luabox-*.vsix SHA256SUMS --clobber
+
+  # Gate: independently re-download the just-uploaded assets and prove them
+  # good before the release goes live.
+  #   1. `sha256sum -c` — the published sums match the published bytes.
+  #   2. Unzip the .vsix and assert extension/package.json names "luabox", its
+  #      version equals the tag sans `v`, and the compiled entry point is inside.
+  # Only if both pass does `mark-latest` run.
+  verify:
+    name: Verify published assets
+    needs: publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Re-verify published checksums against freshly downloaded assets
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"; cd "$work"
+          gh release download "$TAG" \
+            --pattern 'luabox-*.vsix' \
+            --pattern 'SHA256SUMS'
+          echo "--- SHA256SUMS ---"; cat SHA256SUMS
+          # -c exits non-zero if the listed file is missing or its hash differs.
+          sha256sum -c SHA256SUMS
+
+      - name: Validate the .vsix structure and version
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"; cd "$work"
+          gh release download "$TAG" --pattern 'luabox-*.vsix'
+          vsix="$(ls luabox-*.vsix)"
+          echo "validating $vsix"
+          mkdir ext && (cd ext && unzip -q "../$vsix")
+          # VSIX packages lay the extension out under extension/.
+          pkg="ext/extension/package.json"
+          test -f "$pkg" || { echo "error: $pkg missing from vsix" >&2; exit 1; }
+          expected="${TAG#v}"
+          python3 - "$pkg" ext/extension "$expected" <<'PY'
+          import json, os, sys
+          pkg_path, ext_root, expected = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(pkg_path, encoding="utf-8") as f:
+              pkg = json.load(f)
+          if pkg.get("name") != "luabox":
+              sys.exit("error: vsix package.json name = %r, expected 'luabox'" % (pkg.get("name"),))
+          if pkg.get("version") != expected:
+              sys.exit("error: vsix version = %r, expected %r (tag sans 'v')" % (pkg.get("version"), expected))
+          main = pkg.get("main", "./out/extension.js")
+          entry = os.path.join(ext_root, main.lstrip("./").replace("/", os.sep))
+          if not os.path.isfile(entry):
+              sys.exit("error: compiled entry %s not found in vsix (%s)" % (main, entry))
+          print("vsix OK: %s v%s, entry %s present" % (pkg["name"], pkg["version"], main))
+          PY
+
+  # Go-live: mark the release latest, only reachable if `verify` passed. A failed
+  # verify skips this, so the release stays not-latest and the pipeline is red.
+  mark-latest:
+    name: Mark release latest
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Mark latest (go live)
+        run: gh release edit "$TAG" --latest
