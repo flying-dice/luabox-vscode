@@ -109,11 +109,11 @@ export function registerPackages(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "luabox.packages.install",
-      async (arg: { name: string; url: string; tag: string | null }) => {
+      async (arg: { name: string; version: string | null }) => {
         return withRoot(`Installing ${arg.name}`, async (root) => {
-          await cli.add(root, arg.name, arg.url, arg.tag);
+          await cli.add(root, arg.name, arg.version ?? undefined);
           void vscode.window.showInformationMessage(
-            `Installed ${arg.name}${arg.tag ? ` (${arg.tag})` : ""}.`
+            `Installed ${arg.name}${arg.version ? ` (${arg.version})` : ""}.`
           );
         });
       }
@@ -159,14 +159,17 @@ export function registerPackages(context: vscode.ExtensionContext): void {
       packagesProvider.focusSearch();
     }),
     vscode.commands.registerCommand("luabox.signInGithub", async () => {
-      // Drives VS Code's native GitHub sign-in. onDidChangeSessions then
-      // refreshes the panels, but refresh eagerly too for immediate feedback.
+      // Only matters for git-source dependency operations (outdated/update
+      // release probing) — registry (luarocks.org) search/install is always
+      // anonymous, so the Packages view has no auth status to refresh here.
+      // Drives VS Code's native GitHub sign-in; onDidChangeSessions also
+      // refreshes the installed view, but refresh eagerly too for immediate
+      // feedback.
       const auth = await getGithubToken(true);
       if (auth) {
         void vscode.window.showInformationMessage(
           `Signed in to GitHub as ${auth.label}.`
         );
-        void packagesProvider.refreshAuth();
         installed.refresh();
       }
       // Undefined => the user declined the sign-in dialog; stay anonymous.
@@ -183,27 +186,40 @@ export function registerPackages(context: vscode.ExtensionContext): void {
     })
   );
 
-  // Refresh auth status + panels whenever the user signs in / out via the
-  // Accounts menu.
+  // Refresh the installed view (git deps' outdated status can depend on the
+  // rate limit) whenever the user signs in / out via the Accounts menu. The
+  // Packages view is registry-only (anonymous) and has no auth status to
+  // refresh.
   context.subscriptions.push(
     onGithubAuthChange(() => {
-      void packagesProvider.refreshAuth();
       installed.refresh();
     })
   );
 
-  // Auto-refresh the installed view whenever a luabox.toml is saved (install /
-  // remove / update / hand edits all flow through here).
-  const watcher = vscode.workspace.createFileSystemWatcher("**/luabox.toml");
+  // Auto-refresh the installed view whenever luabox.toml (path/git/url/
+  // workspace deps) or the project's *.rockspec (registry deps — the package
+  // manifest, SPEC.md §6) is saved: install / remove / update / hand edits to
+  // either file all flow through here.
+  const manifestWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/luabox.toml"
+  );
+  const rockspecWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/*.rockspec"
+  );
   const bump = () => installed.refresh();
-  watcher.onDidChange(bump);
-  watcher.onDidCreate(bump);
-  watcher.onDidDelete(bump);
-  context.subscriptions.push(watcher);
+  for (const watcher of [manifestWatcher, rockspecWatcher]) {
+    watcher.onDidChange(bump);
+    watcher.onDidCreate(bump);
+    watcher.onDidDelete(bump);
+    context.subscriptions.push(watcher);
+  }
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (doc.fileName.endsWith("luabox.toml")) {
+      if (
+        doc.fileName.endsWith("luabox.toml") ||
+        doc.fileName.endsWith(".rockspec")
+      ) {
         installed.refresh();
       }
     })

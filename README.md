@@ -34,25 +34,32 @@ A dedicated **luabox** container in the Activity Bar gives `luabox.toml`
 projects an npm-registry-style dependency GUI. Everything it does is call the
 `luabox` CLI (the same binary the language server uses, resolved via
 `luabox.path`) in your workspace folder and render the result — the CLI owns all
-GitHub and TOML logic.
+registry, GitHub, and manifest logic.
 
-- **Packages** (webview): a search box and result cards. Each card shows the
-  package name and `owner/repo`, ★ stars, description, topics, and the latest
-  release tag, with a one-click **Install**. An empty query lists all public
-  GitHub repos tagged `luabox`. Install runs
-  `luabox add <name> --git <url> --tag <latest>`.
-  > luabox packages are public GitHub repos with the `luabox` topic and a root
-  > `luabox.toml`. None are published yet, so search legitimately returns no
-  > results today — the panel says so rather than looking broken.
-- **Installed dependencies** (tree): every dependency in `luabox.toml` with its
-  current pin. A git dependency that is behind its repo's latest GitHub release
-  shows a `current → latest` badge and an **Update** button
-  (`luabox update <name>`, re-pinning to the latest tag); every dependency has a
-  **Remove** button (`luabox remove <name>`). Path / workspace / registry
-  dependencies are shown read-only (no false "outdated"). The view title carries
-  a badge with the number of outdated dependencies and a **Refresh** action, and
-  it auto-refreshes whenever `luabox.toml` is saved or a dependency is
-  installed / updated / removed.
+luabox follows the pnpm/bun model: **[luarocks.org](https://luarocks.org) is
+the registry**, and the project's `*.rockspec` is the package manifest for
+registry dependencies (`luabox.toml` stays for tool config plus `path` /
+`git` / `url` / `workspace` source dependencies a rockspec can't express).
+
+- **Packages** (webview): a search box over luarocks.org and result cards.
+  Each card shows the rock name, latest version and version count, and a
+  description (when the registry has one), with a one-click **Install**. An
+  empty query lists the first page of the registry by name. Install runs
+  `luabox add <name>[@<version>]` — a bare registry add; the CLI edits the
+  project's `*.rockspec`. Registry search and install are **anonymous** — no
+  GitHub sign-in involved.
+- **Installed dependencies** (tree): every resolved dependency (rockspec
+  registry deps fused with `luabox.toml` source deps) with its current pin. A
+  `git` dependency behind its repo's latest GitHub release, or a `registry`
+  dependency behind the highest version on luarocks.org, shows a
+  `current → latest` badge and an **Update** button (`luabox update <name>`);
+  every dependency has a **Remove** button (`luabox remove <name>`). `path` /
+  `workspace` / `url` dependencies are shown read-only (a `url` dep is
+  sha256-pinned and immutable; `path`/`workspace` have no version to compare).
+  The view title carries a badge with the number of outdated dependencies and
+  a **Refresh** action, and it auto-refreshes whenever `luabox.toml` or the
+  project's `*.rockspec` is saved, or a dependency is installed / updated /
+  removed.
 
 If the workspace has no `luabox.toml`, the panel shows a friendly prompt to run
 `luabox new` instead of any actions. If the `luabox` binary can't be found, the
@@ -60,22 +67,26 @@ panel links to the [install docs](https://github.com/flying-dice/luabox#install)
 
 ### Authentication
 
-Package search and outdated checks hit the GitHub API, which rate-limits
-unauthenticated calls. **The extension uses your VS Code GitHub sign-in
-automatically** — the account behind the **Accounts** menu (the person icon at
-the bottom of the Activity Bar). No token to paste, no device flow: if you are
-signed in to GitHub in VS Code, the extension reuses that session (requesting no
-scopes — an authenticated token alone lifts the rate limit and reads public
-data) and passes it to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment
+GitHub sign-in is **optional** and only matters for `git`-source dependencies:
+`luabox outdated` and `luabox update` probe a git dependency's GitHub repo for
+its latest release tag, which hits the GitHub API and can be rate-limited when
+anonymous. Registry (luarocks.org) search, install, remove, and outdated checks
+are always anonymous and never need sign-in — the **Packages** panel has no
+auth gating or sign-in nudges.
+
+**The extension uses your VS Code GitHub sign-in automatically** — the account
+behind the **Accounts** menu (the person icon at the bottom of the Activity
+Bar). No token to paste, no device flow: if you are signed in to GitHub in VS
+Code, the extension reuses that session (requesting no scopes — an
+authenticated token alone lifts the rate limit and reads public data) and
+passes it to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment
 variable. The token is only held in memory and passed to the child process; it
 is never logged or written to disk by the extension (VS Code's SecretStorage
 backs the session).
 
-- The **Packages** panel shows **Signed in as `<user>`** when a session exists,
-  or a **Sign in to GitHub** button otherwise. There are also
-  **luabox: Sign in to GitHub** / **luabox: Sign out of GitHub** commands.
-- If you hit a rate limit while signed out, the extension offers an actionable
-  **Sign in to GitHub** prompt.
+- There are **luabox: Sign in to GitHub** / **luabox: Sign out of GitHub**
+  commands. If a `git`-dependency check hits a rate limit while signed out,
+  the extension offers an actionable **Sign in to GitHub** prompt.
 - **Signing out** is done through VS Code itself: the editor owns the GitHub
   session, so use **Accounts ▸ your GitHub account ▸ Sign Out**. The extension's
   "Sign out" command points you there rather than faking a sign-out it cannot
@@ -176,7 +187,7 @@ luabox explicitly if you want it:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `luabox.path` | `luabox` | Path to the `luabox` executable. A bare name is resolved on `PATH`. The server is launched as `<path> lsp`. |
-| `luabox.githubToken` | `""` | **Advanced override.** Normally unnecessary — the extension uses your VS Code GitHub sign-in automatically. Set a Personal Access Token here only for GitHub Enterprise / restricted orgs; when set it takes precedence over the native session and is passed to the CLI as `LUABOX_GITHUB_TOKEN` (never logged). |
+| `luabox.githubToken` | `""` | **Optional, for `git`-source dependencies only** (the registry, luarocks.org, is always anonymous). Normally unnecessary — the extension uses your VS Code GitHub sign-in automatically. Set a Personal Access Token here only for GitHub Enterprise / restricted orgs; when set it takes precedence over the native session and is passed to the CLI as `LUABOX_GITHUB_TOKEN` (never logged). |
 | `luabox.trace.server` | `off` | Trace LSP traffic (`off` / `messages` / `verbose`). |
 
 ## For maintainers: building and packaging
@@ -207,8 +218,8 @@ npm install -g @vscode/vsce      # or use: npx @vscode/vsce
 npx @vscode/vsce package
 ```
 
-This produces `luabox-0.2.1.vsix`, which can be installed via
-`code --install-extension luabox-0.2.1.vsix` or **Extensions ▸ … ▸ Install from
+This produces `luabox-0.3.0.vsix`, which can be installed via
+`code --install-extension luabox-0.3.0.vsix` or **Extensions ▸ … ▸ Install from
 VSIX** in the UI.
 
 ## Publishing to the Marketplace
@@ -231,6 +242,30 @@ Releases are tagged in this repo and published to
 [GitHub Releases](https://github.com/flying-dice/luabox-vscode/releases), each
 with the packaged `.vsix` and its `SHA256SUMS`. The extension is versioned
 independently of the `luabox` toolchain.
+
+### 0.3.0
+
+- **Registry pivot: [luarocks.org](https://luarocks.org) replaces GitHub-topic
+  discovery** (tracks the `luabox` CLI's registry pivot; no backwards
+  compatibility with older CLI versions). The **Packages** panel now searches
+  luarocks.org and shows rock name, latest version, version count, and
+  description; stars/topics/owner-repo are gone (the registry doesn't carry
+  them). Install runs `luabox add <name>[@<version>]` — a bare registry add
+  that edits the project's `*.rockspec` (now the package manifest for
+  registry deps, pnpm/bun-style) instead of `luabox add <name> --git <url>
+  --tag <tag>`.
+- **Registry operations are anonymous.** Search, install, remove, and the
+  registry half of outdated/update no longer touch GitHub or classify rate
+  limits, and the **Packages** panel no longer gates on or nudges GitHub
+  sign-in. Sign-in remains only for `git`-source dependencies (release-tag
+  probing in `outdated`/`update`) — the sign-in/sign-out commands and the
+  `luabox.githubToken` override still work exactly as before, scoped to that
+  path.
+- **Installed dependencies** now treats `registry` deps the same as `git` deps
+  for outdated detection and the Update action (`current → latest` badge,
+  luarocks.org-sourced), and adds read-only support for the immutable `url`
+  dependency kind. The view now also auto-refreshes when the project's
+  `*.rockspec` is saved, not just `luabox.toml`.
 
 ### 0.2.1
 

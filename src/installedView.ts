@@ -97,30 +97,45 @@ export class InstalledDepsProvider implements vscode.TreeDataProvider<DepNode> {
   private toNode(d: Dependency): DepNode {
     const node = new DepNode(d.name, vscode.TreeItemCollapsibleState.None, d);
 
-    if (d.kind === "git" && d.outdated && d.current && d.latest) {
+    // `git` (pinned by tag, vs. its GitHub repo's latest release) and
+    // `registry` (locked version vs. the highest on luarocks.org) are the two
+    // kinds `luabox outdated` can mark outdated, and the two `luabox update`
+    // acts on (deps_cmd.rs: `update` re-pins a tag-pinned git dep, then
+    // re-resolves — a registry dep just re-resolves to its constraint's
+    // highest match). `path` / `workspace` / `url` deps are never outdated:
+    // a `url` dep is sha256-pinned (immutable content), `path`/`workspace`
+    // deps have no version surface to compare.
+    if (
+      (d.kind === "git" || d.kind === "registry") &&
+      d.outdated &&
+      d.current &&
+      d.latest
+    ) {
       // e.g. "v0.1.0 → v0.1.3"
       node.description = `${d.current} → ${d.latest}`;
       node.iconPath = new vscode.ThemeIcon(
         "arrow-circle-up",
         new vscode.ThemeColor("charts.yellow")
       );
-      node.contextValue = "gitOutdated";
+      node.contextValue = "depOutdated";
       node.tooltip = new vscode.MarkdownString(
-        `**${d.name}** (git)\n\n` +
+        `**${d.name}** (${d.kind})\n\n` +
           `Current: \`${d.current}\`\n\nLatest: \`${d.latest}\`\n\n` +
-          `Repo: ${d.repo ?? d.url ?? "?"}`
+          (d.kind === "git"
+            ? `Repo: ${d.repo ?? d.url ?? "?"}`
+            : `Source: luarocks.org`)
       );
-    } else if (d.kind === "git") {
-      node.description = d.current ?? "git";
+    } else if (d.kind === "git" || d.kind === "registry") {
+      node.description = d.current ?? d.kind;
       node.iconPath = new vscode.ThemeIcon("check");
-      node.contextValue = "gitCurrent";
+      node.contextValue = "depCurrent";
       node.tooltip = new vscode.MarkdownString(
-        `**${d.name}** (git) — up to date${
+        `**${d.name}** (${d.kind}) — up to date${
           d.current ? ` at \`${d.current}\`` : ""
         }`
       );
     } else {
-      // path / workspace / registry — no meaningful git "outdated"; read-only-ish.
+      // path / workspace / url — no version surface to compare; read-only.
       node.description = d.current ? `${d.kind} ${d.current}` : d.kind;
       node.iconPath = new vscode.ThemeIcon("symbol-file");
       node.contextValue = "depOther";

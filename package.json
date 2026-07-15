@@ -2,7 +2,7 @@
   "name": "luabox",
   "displayName": "luabox",
   "description": "luabox language support: typecheck, lint, hover, goto-def and completion for Lua, powered by `luabox lsp`.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "luabox",
   "license": "MIT",
   "engines": {
@@ -106,12 +106,12 @@
       "view/item/context": [
         {
           "command": "luabox.packages.update",
-          "when": "view == luabox.installed && viewItem == gitOutdated",
+          "when": "view == luabox.installed && viewItem == depOutdated",
           "group": "inline@1"
         },
         {
           "command": "luabox.packages.remove",
-          "when": "view == luabox.installed && (viewItem == gitOutdated || viewItem == gitCurrent || viewItem == depOther)",
+          "when": "view == luabox.installed && (viewItem == depOutdated || viewItem == depCurrent || viewItem == depOther)",
           "group": "inline@2"
         }
       ],
@@ -138,7 +138,7 @@
         "luabox.githubToken": {
           "type": "string",
           "default": "",
-          "markdownDescription": "**Advanced / power-user override.** Normally the extension uses your VS Code GitHub sign-in automatically (the Accounts menu) — no token needed. Set a Personal Access Token here only for setups the native sign-in can't cover, e.g. GitHub Enterprise or restricted orgs. When set, it takes precedence over the native session and is passed to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment variable (never logged). A read-only token with `public_repo` scope is sufficient.",
+          "markdownDescription": "**Optional, for git-source dependencies only.** The package registry (luarocks.org) is anonymous and never needs this. It only matters for `git` dependencies (`luabox add --git`): release-tag probing in `luabox outdated`/`luabox update` hits the GitHub API, which rate-limits unauthenticated calls. Normally the extension uses your VS Code GitHub sign-in automatically (the Accounts menu) — no token needed. Set a Personal Access Token here only for setups the native sign-in can't cover, e.g. GitHub Enterprise or restricted orgs. When set, it takes precedence over the native session and is passed to the `luabox` CLI as the `LUABOX_GITHUB_TOKEN` environment variable (never logged). A read-only token with `public_repo` scope is sufficient.",
           "scope": "machine-overridable"
         },
         "luabox.trace.server": {
@@ -160,7 +160,7 @@
     "check-types": "tsc -p ./ --noEmit",
     "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "watch": "npm run bundle -- --watch",
-    "test": "esbuild ./src/authToken.test.ts --bundle --outfile=out/authToken.test.cjs --format=cjs --platform=node && node --test out/authToken.test.cjs",
+    "test": "esbuild ./src/authToken.test.ts --bundle --outfile=out/authToken.test.cjs --format=cjs --platform=node && esbuild ./src/parse.test.ts --bundle --outfile=out/parse.test.cjs --format=cjs --platform=node && node --test out/authToken.test.cjs out/parse.test.cjs",
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
